@@ -15,6 +15,11 @@
 #include "EmulNet.h"
 #include "Queue.h"
 
+#include <chrono>
+#include <memory>
+
+using std::shared_ptr;
+
 /**
  * Macros
  */
@@ -54,6 +59,7 @@ private:
 	Log *log;
 	Params *par;
 	Member *memberNode;
+    vector<shared_ptr<Member>> member_list;
 	char NULLADDR[6];
 
 public:
