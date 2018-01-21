@@ -10,7 +10,6 @@
 /*
  * Note: You can change/add any functions in MP1Node.{h,cpp}
  */
-using namespace std::chrono;
 
 /**
  * Overloaded Constructor of the MP1Node class
@@ -108,6 +107,9 @@ int MP1Node::initThisNode(Address *joinaddr) {
     memberNode->pingCounter = TFAIL;
     memberNode->timeOutCounter = -1;
     initMemberListTable(memberNode);
+
+    memberNode->memberList.emplace_back(id, port, memberNode->heartbeat, par->getcurrtime());
+    memberNode->myPos = memberNode->memberList.begin();
 
     return 0;
 }
@@ -266,9 +268,7 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
         int port = *(short *) (&member->addr.addr[4]);
         if (!alreadyContains(id, memberNode->memberList)) {
 
-            memberNode->memberList.emplace_back(id, port, member->heartbeat,
-                                                (long) duration_cast<milliseconds>(
-                                                        system_clock::now().time_since_epoch()).count());
+            memberNode->memberList.emplace_back(id, port, member->heartbeat, par->getcurrtime());
             log->logNodeAdd(&memberNode->addr, &member->addr);
 
             //TODO: add other data
@@ -299,10 +299,25 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
  * 				Propagate your membership list
  */
 void MP1Node::nodeLoopOps() {
+    if (par->getcurrtime() - memberNode->pingCounter  < memberNode->timeOutCounter) {
+        return;
+    }
+    auto it = memberNode->memberList.begin();
+    while(it != memberNode->memberList.end()) {
+        if (it == memberNode->myPos) {
+            ++it;
+            continue;
+        }
 
-    /*
-     * Your code goes here
-     */
+        MemberListEntry &entry = *it;
+        int diff = par->getcurrtime() - entry.heartbeat;
+        if (diff > TREMOVE) {
+            log->logNodeRemove(&memberNode->addr, extractAddress(entry).get());
+            it = memberNode->memberList.erase(it);
+        } else {
+            ++it;
+        }
+    }
 
     return;
 }

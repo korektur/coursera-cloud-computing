@@ -15,7 +15,6 @@
 #include "EmulNet.h"
 #include "Queue.h"
 
-#include <chrono>
 #include <memory>
 
 using std::shared_ptr;
@@ -36,7 +35,7 @@ using std::shared_ptr;
 enum MsgTypes{
     JOINREQ,
     JOINREP,
-    DUMMYLASTMSGTYPE
+    HEARTBEAT
 };
 
 /**
