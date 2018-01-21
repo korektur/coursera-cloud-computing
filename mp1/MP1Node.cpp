@@ -26,7 +26,6 @@ MP1Node::MP1Node(Member *member, Params *params, EmulNet *emul, Log *log, Addres
     this->log = log;
     this->par = params;
     this->memberNode->addr = *address;
-    this->member_list = vector<shared_ptr<Member>>();
 }
 
 /**
@@ -208,6 +207,46 @@ void MP1Node::checkMessages() {
     return;
 }
 
+bool alreadyContains(int id, vector<MemberListEntry> memberList) {
+    for (auto elem: memberList) {
+        if (elem.id == id) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void serialize_member_list(const vector<MemberListEntry> &memberList, char *buff) {
+    int size = memberList.size();
+    memcpy(buff, &size, sizeof(size_t));
+    int ptr = sizeof(size_t);
+    for (int i = 0; i < size; ++i) {
+        memcpy(buff + ptr, &memberList[i], sizeof(MemberListEntry));
+        ptr += sizeof(MemberListEntry);
+    }
+}
+
+vector<MemberListEntry> deserialize_member_list(char *buff) {
+    size_t size = 0;
+    memcpy(&size, buff, sizeof(size_t));
+    int ptr = sizeof(size_t);
+    vector<MemberListEntry> member_list(size);
+    for (int i = 0; i < size; ++i) {
+        memcpy(&member_list[i], buff + ptr, sizeof(MemberListEntry));
+        ptr += sizeof(MemberListEntry);
+    }
+}
+
+unique_ptr<Address> extractAddress(const MemberListEntry &entry) {
+    auto ptr = unique_ptr<Address>(new Address());
+    ptr->init();
+    memcpy(&ptr->addr, &entry.id, sizeof(int));
+    memcpy(&ptr->addr + sizeof(int), &entry.port, sizeof(short));
+
+    return ptr;
+}
+
 /**
  * FUNCTION NAME: recvCallBack
  *
@@ -216,31 +255,39 @@ void MP1Node::checkMessages() {
 bool MP1Node::recvCallBack(void *env, char *data, int size) {
     auto *hdr = (MessageHdr *) data;
     if (hdr->msgType == JOINREQ) {
-        auto member = shared_ptr<Member>(new Member);
+        auto member = unique_ptr<Member>(new Member);
         member->addr = Address();
         member->addr.init();
 
         memcpy(&member->addr.addr, data + sizeof(MessageHdr), sizeof(member->addr.addr));
         memcpy(&member->heartbeat, data + size - sizeof(long), sizeof(long));
-        //TODO: check if duplicate
-        member_list.push_back(member);
-        size_t id = hash<string>()(member->addr.getAddress());
-        member->memberList.emplace_back((int) id, (short) 0, member->heartbeat,
-                                        (long) duration_cast<milliseconds>(
-                                                system_clock::now().time_since_epoch()).count());
-        log->logNodeAdd(&memberNode->addr, &member->addr);
 
-        //TODO: add other data
-        size_t message_size = sizeof(MessageHdr);
-        auto msg = (MessageHdr *) malloc(message_size * sizeof(char));
-        msg->msgType = JOINREQ;
+        int id = *(int *) (&member->addr.addr);
+        int port = *(short *) (&member->addr.addr[4]);
+        if (!alreadyContains(id, memberNode->memberList)) {
 
-        emulNet->ENsend(&memberNode->addr, &member->addr, (char *) msg, message_size);
+            memberNode->memberList.emplace_back(id, port, member->heartbeat,
+                                                (long) duration_cast<milliseconds>(
+                                                        system_clock::now().time_since_epoch()).count());
+            log->logNodeAdd(&memberNode->addr, &member->addr);
+
+            //TODO: add other data
+            size_t message_size =
+                    sizeof(MessageHdr) + sizeof(size_t) + memberNode->memberList.size() * (sizeof(MemberListEntry));
+            auto msg = (MessageHdr *) malloc(message_size * sizeof(char));
+            msg->msgType = JOINREQ;
+            serialize_member_list(memberNode->memberList, (char *) (msg + 1));
+            emulNet->ENsend(&memberNode->addr, &member->addr, (char *) msg, message_size);
+        }
 
     } else if (hdr->msgType == JOINREP) {
-
-    } else if (hdr->msgType == DUMMYLASTMSGTYPE) {
-
+        auto member_list = deserialize_member_list((char *) (hdr + 1));
+        for (auto entry: member_list) {
+            if (!alreadyContains(entry.id, memberNode->memberList)) {
+                memberNode->memberList.push_back(entry);
+                log->logNodeAdd(&memberNode->addr, extractAddress(entry).get());
+            }
+        }
     }
 }
 

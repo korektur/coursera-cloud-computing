@@ -59,7 +59,6 @@ private:
 	Log *log;
 	Params *par;
 	Member *memberNode;
-    vector<shared_ptr<Member>> member_list;
 	char NULLADDR[6];
 
 public:
