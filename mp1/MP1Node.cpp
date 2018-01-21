@@ -244,7 +244,7 @@ unique_ptr<Address> extractAddress(const MemberListEntry &entry) {
     auto ptr = unique_ptr<Address>(new Address());
     ptr->init();
     memcpy(&ptr->addr, &entry.id, sizeof(int));
-    memcpy(&ptr->addr + sizeof(int), &entry.port, sizeof(short));
+    memcpy(&ptr->addr[4], &entry.port, sizeof(short));
 
     return ptr;
 }
