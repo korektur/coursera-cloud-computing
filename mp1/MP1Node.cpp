@@ -359,11 +359,10 @@ void MP1Node::nodeLoopOps() {
     memberNode->myPos->settimestamp(par->getcurrtime());
     log->LOG(&memberNode->addr, ("heartbeat: " + to_string(memberNode->heartbeat)).c_str());
     for (auto it = memberNode->memberList.begin(); it != memberNode->memberList.end(); ++it) {
-        if (it == memberNode->myPos) {
-            log->LOG(&memberNode->addr, "here i am");
-        }
-        if (it->id == memberNode->myPos->id) {
-            log->LOG(&memberNode->addr, "here am i");
+        int id = *(int *) (&memberNode->addr.addr);
+        if (it->id == id) {
+            it->setheartbeat(memberNode->heartbeat);
+            it->settimestamp(par->getcurrtime());
         }
     }
 
