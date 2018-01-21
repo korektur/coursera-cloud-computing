@@ -1,3 +1,0 @@
-C:/Users/akhun/CLionProjects/coursera-cloud-computing/mp1/cmake-build-debug/CMakeFiles/mp1.dir
-C:/Users/akhun/CLionProjects/coursera-cloud-computing/mp1/cmake-build-debug/CMakeFiles/edit_cache.dir
-C:/Users/akhun/CLionProjects/coursera-cloud-computing/mp1/cmake-build-debug/CMakeFiles/rebuild_cache.dir
