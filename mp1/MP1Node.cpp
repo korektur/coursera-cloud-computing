@@ -209,14 +209,14 @@ void MP1Node::checkMessages() {
     return;
 }
 
-bool alreadyContains(int id, vector<MemberListEntry> memberList) {
-    for (auto elem: memberList) {
-        if (elem.id == id) {
-            return true;
+MemberListEntry *alreadyContains(int id, const vector<MemberListEntry> &memberList) {
+    for (int i = 0; i < memberList.size(); ++i) {
+        if (memberList[i].id == id) {
+            return const_cast<MemberListEntry*>(&memberList[i]);
         }
     }
 
-    return false;
+    return nullptr;
 }
 
 void serialize_member_list(const vector<MemberListEntry> &memberList, char *buff) {
@@ -266,7 +266,8 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
 
         int id = *(int *) (&member->addr.addr);
         int port = *(short *) (&member->addr.addr[4]);
-        if (!alreadyContains(id, memberNode->memberList)) {
+        MemberListEntry *entry = alreadyContains(id, memberNode->memberList);
+        if (entry == nullptr) {
 
             memberNode->memberList.emplace_back(id, port, member->heartbeat, par->getcurrtime());
             log->logNodeAdd(&memberNode->addr, &member->addr);
@@ -285,7 +286,23 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
         for (auto entry: member_list) {
             if (!alreadyContains(entry.id, memberNode->memberList)) {
                 memberNode->memberList.push_back(entry);
-                log->logNodeAdd(&memberNode->addr, extractAddress(entry).get());
+                const unique_ptr<Address> &ptr = extractAddress(entry);
+                log->logNodeAdd(&memberNode->addr, ptr.get());
+            }
+        }
+    } else if (hdr->msgType == HEARTBEAT) {
+        auto member_list = deserialize_member_list((char *) (hdr + 1));
+        for (auto entry: member_list) {
+            MemberListEntry *cur_entry = alreadyContains(entry.id, memberNode->memberList);
+            if (cur_entry == nullptr) {
+                memberNode->memberList.push_back(entry);
+                const unique_ptr<Address> &ptr = extractAddress(entry);
+                log->logNodeAdd(&memberNode->addr, ptr.get());
+            } else {
+                if (cur_entry->getheartbeat() < entry.getheartbeat()) {
+                    cur_entry->setheartbeat(entry.getheartbeat());
+                    cur_entry->settimestamp(par->getcurrtime());
+                }
             }
         }
     }
@@ -299,11 +316,11 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
  * 				Propagate your membership list
  */
 void MP1Node::nodeLoopOps() {
-    if (par->getcurrtime() - memberNode->pingCounter  < memberNode->timeOutCounter) {
+    if (par->getcurrtime() - memberNode->pingCounter < memberNode->timeOutCounter) {
         return;
     }
     auto it = memberNode->memberList.begin();
-    while(it != memberNode->memberList.end()) {
+    while (it != memberNode->memberList.end()) {
         if (it == memberNode->myPos) {
             ++it;
             continue;
@@ -312,11 +329,29 @@ void MP1Node::nodeLoopOps() {
         MemberListEntry &entry = *it;
         int diff = par->getcurrtime() - entry.heartbeat;
         if (diff > TREMOVE) {
-            log->logNodeRemove(&memberNode->addr, extractAddress(entry).get());
+            const unique_ptr<Address> &ptr = extractAddress(entry);
+            log->logNodeRemove(&memberNode->addr, ptr.get());
             it = memberNode->memberList.erase(it);
         } else {
             ++it;
         }
+    }
+
+    memberNode->timeOutCounter = par->getcurrtime();
+
+    //TODO: replace with gossip strategy
+    for (auto &entry: memberNode->memberList) {
+        if (&entry == memberNode->myPos.base() || par->getcurrtime() - entry.getheartbeat() > TFAIL) {
+            continue;
+        }
+
+        const unique_ptr<Address> &address = extractAddress(entry);
+        size_t message_size =
+                sizeof(MessageHdr) + sizeof(size_t) + memberNode->memberList.size() * (sizeof(MemberListEntry));
+        auto msg = (MessageHdr *) malloc(message_size * sizeof(char));
+        msg->msgType = HEARTBEAT;
+        serialize_member_list(memberNode->memberList, (char *) (msg + 1));
+        emulNet->ENsend(&memberNode->addr, address.get(), (char *) msg, message_size);
     }
 
     return;
