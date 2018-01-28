@@ -214,14 +214,15 @@ void MP1Node::checkMessages() {
     return;
 }
 
-int alreadyContains(int id, const vector<MemberListEntry> &memberList) {
-    for (size_t i = 0; i < memberList.size(); ++i) {
+size_t alreadyContains(int id, const vector<MemberListEntry> &memberList) {
+    size_t i;
+    for (i = 0; i < memberList.size(); ++i) {
         if (memberList[i].id == id) {
-            return static_cast<int>(i);
+            return i;
         }
     }
 
-    return -1;
+    return i;
 }
 
 void serialize_member_list(const vector<MemberListEntry> &memberList, char *buff) {
@@ -275,8 +276,8 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
 
         int id = *(int *) (&member->addr.addr);
         short port = *(short *) (&member->addr.addr[4]);
-        int entry_index = alreadyContains(id, memberNode->memberList);
-        if (entry_index == -1) {
+        size_t entry_index = alreadyContains(id, memberNode->memberList);
+        if (entry_index == memberNode->memberList.size()) {
             log->logNodeAdd(&memberNode->addr, &member->addr);
 
             size_t message_size =
@@ -296,7 +297,7 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
 
         for (auto entry: *member_list) {
 
-            if (alreadyContains(entry.id, memberNode->memberList) == -1) {
+            if (alreadyContains(entry.id, memberNode->memberList) == memberNode->memberList.size()) {
                 memberNode->memberList.emplace_back(entry);
                 auto address = extractAddress(entry);
                 log->logNodeAdd(&memberNode->addr, &address);
@@ -306,11 +307,13 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
         auto member_list = deserialize_member_list((char *) (hdr + 1), log, size, &memberNode->addr);
         for (auto entry: *member_list) {
 
-            int entry_index = alreadyContains(entry.id, memberNode->memberList);
-            if (entry_index == -1 && par->getcurrtime() - entry.timestamp < TFAIL) {
-                memberNode->memberList.push_back(entry);
-                auto address = extractAddress(entry);
-                log->logNodeAdd(&memberNode->addr, &address);
+            size_t entry_index = alreadyContains(entry.id, memberNode->memberList);
+            if (entry_index == memberNode->memberList.size()) {
+                if (par->getcurrtime() - entry.timestamp < TFAIL) {
+                    memberNode->memberList.push_back(entry);
+                    auto address = extractAddress(entry);
+                    log->logNodeAdd(&memberNode->addr, &address);
+                }
             } else {
                 if (memberNode->memberList[entry_index].getheartbeat() < entry.getheartbeat()) {
                     memberNode->memberList[entry_index].setheartbeat(entry.getheartbeat());
