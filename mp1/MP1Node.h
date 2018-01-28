@@ -15,13 +15,10 @@
 #include "EmulNet.h"
 #include "Queue.h"
 
-#include <vector>
 #include <memory>
-#include <chrono>
 
-using std::vector;
 using std::shared_ptr;
-using namespace chrono;
+
 /**
  * Macros
  */
@@ -38,7 +35,7 @@ using namespace chrono;
 enum MsgTypes {
     JOINREQ,
     JOINREP,
-    DUMMYLASTMSGTYPE
+    HEARTBEAT
 };
 
 /**
@@ -60,9 +57,7 @@ private:
     EmulNet *emulNet;
     Log *log;
     Params *par;
-    vector<shared_ptr<Member>> members;
     Member *memberNode;
-
     char NULLADDR[6];
 
 public:
