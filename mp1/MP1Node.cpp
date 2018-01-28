@@ -9,7 +9,7 @@
 #include <random>
 #include "MP1Node.h"
 
-#define HEARTBEAT_RECEIVERS_FACTOR 0.4
+#define HEARTBEAT_RECEIVERS_FACTOR 0.6
 
 /*
  * Note: You can change/add any functions in MP1Node.{h,cpp}
@@ -351,8 +351,7 @@ void MP1Node::nodeLoopOps() {
         }
     }
 
-    auto size = static_cast<size_t>(max<long>((lround(memberNode->memberList.size() * HEARTBEAT_RECEIVERS_FACTOR)), 1));
-    log->LOG(&memberNode->addr, ("size " + to_string(size)).c_str());
+    auto size = static_cast<size_t>(max<long>((lround(memberNode->memberList.size() * HEARTBEAT_RECEIVERS_FACTOR)), 2));
     auto heartbeatReceivers = vector<MemberListEntry>();
     for (auto &entry: memberNode->memberList) {
         if (&entry == &memberNode->memberList[0] || par->getcurrtime() - entry.gettimestamp() > TFAIL) {
