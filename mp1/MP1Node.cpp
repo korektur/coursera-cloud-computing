@@ -5,7 +5,11 @@
  * 				Definition of MP1Node class functions.
  **********************************/
 
+#include <unordered_set>
+#include <random>
 #include "MP1Node.h"
+
+#define HEARTBEAT_RECEIVERS_FACTOR 0.6
 
 /*
  * Note: You can change/add any functions in MP1Node.{h,cpp}
@@ -145,7 +149,7 @@ int MP1Node::introduceSelfToGroup(Address *joinaddr) {
 #endif
 
         // send JOINREQ message to introducer member
-        emulNet->ENsend(&memberNode->addr, joinaddr, (char *) msg, msgsize);
+        emulNet->ENsend(&memberNode->addr, joinaddr, (char *) msg, static_cast<int>(msgsize));
 
         free(msg);
     }
@@ -210,14 +214,15 @@ void MP1Node::checkMessages() {
     return;
 }
 
-int alreadyContains(int id, const vector<MemberListEntry> &memberList) {
-    for (size_t i = 0; i < memberList.size(); ++i) {
+size_t alreadyContains(int id, const vector<MemberListEntry> &memberList) {
+    size_t i;
+    for (i = 0; i < memberList.size(); ++i) {
         if (memberList[i].id == id) {
             return i;
         }
     }
 
-    return -1;
+    return i;
 }
 
 void serialize_member_list(const vector<MemberListEntry> &memberList, char *buff) {
@@ -270,10 +275,9 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
         memcpy(&member->heartbeat, data + size - sizeof(long), sizeof(long));
 
         int id = *(int *) (&member->addr.addr);
-        int port = *(short *) (&member->addr.addr[4]);
-        int entry_index = alreadyContains(id, memberNode->memberList);
-        if (entry_index == -1) {
-            memberNode->memberList.emplace_back(id, port, member->heartbeat, par->getcurrtime());
+        short port = *(short *) (&member->addr.addr[4]);
+        size_t entry_index = alreadyContains(id, memberNode->memberList);
+        if (entry_index == memberNode->memberList.size()) {
             log->logNodeAdd(&memberNode->addr, &member->addr);
 
             size_t message_size =
@@ -281,16 +285,20 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
             auto msg = (MessageHdr *) malloc(message_size * sizeof(char));
             msg->msgType = JOINREP;
             serialize_member_list(memberNode->memberList, (char *) (msg + 1));
-            emulNet->ENsend(&memberNode->addr, &member->addr, (char *) msg, message_size);
+            emulNet->ENsend(&memberNode->addr, &member->addr, (char *) msg, static_cast<int>(message_size));
+            memberNode->memberList.emplace_back(id, port, member->heartbeat, par->getcurrtime());
+
+            free(msg);
         }
 
     } else if (hdr->msgType == JOINREP) {
         auto member_list = deserialize_member_list((char *) (hdr + 1), log, size, &memberNode->addr);
+        memberNode->inGroup = true;
 
         for (auto entry: *member_list) {
 
-            if (alreadyContains(entry.id, memberNode->memberList) == -1) {
-                memberNode->memberList.push_back(MemberListEntry(entry));
+            if (alreadyContains(entry.id, memberNode->memberList) == memberNode->memberList.size()) {
+                memberNode->memberList.emplace_back(entry);
                 auto address = extractAddress(entry);
                 log->logNodeAdd(&memberNode->addr, &address);
             }
@@ -298,18 +306,15 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
     } else if (hdr->msgType == HEARTBEAT) {
         auto member_list = deserialize_member_list((char *) (hdr + 1), log, size, &memberNode->addr);
         for (auto entry: *member_list) {
-            log->LOG(&memberNode->addr,
-                     ("entry " + to_string(entry.getheartbeat()) + " " + to_string(entry.id)).c_str());
 
-            int entry_index = alreadyContains(entry.id, memberNode->memberList);
-            if (entry_index == -1) {
-                memberNode->memberList.push_back(entry);
-                auto address = extractAddress(entry);
-                log->logNodeAdd(&memberNode->addr, &address);
+            size_t entry_index = alreadyContains(entry.id, memberNode->memberList);
+            if (entry_index == memberNode->memberList.size()) {
+                if (par->getcurrtime() - entry.timestamp < TFAIL) {
+                    memberNode->memberList.push_back(entry);
+                    auto address = extractAddress(entry);
+                    log->logNodeAdd(&memberNode->addr, &address);
+                }
             } else {
-                log->LOG(&memberNode->addr,
-                         ("here " + to_string(memberNode->memberList[entry_index].getheartbeat()) + " " +
-                          to_string(entry.getheartbeat())).c_str());
                 if (memberNode->memberList[entry_index].getheartbeat() < entry.getheartbeat()) {
                     memberNode->memberList[entry_index].setheartbeat(entry.getheartbeat());
                     memberNode->memberList[entry_index].settimestamp(par->getcurrtime());
@@ -329,21 +334,14 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
  * 				Propagate your membership list
  */
 void MP1Node::nodeLoopOps() {
-//    log->LOG(&memberNode->addr, ("nodeLoopOps: " + to_string(memberNode->pingCounter) + " " +
-//                                 to_string(memberNode->timeOutCounter)).c_str());
     if (par->getcurrtime() - memberNode->pingCounter < memberNode->timeOutCounter) {
         return;
     }
 
-    auto it = memberNode->memberList.begin();
+    auto it = memberNode->memberList.begin()++;
     while (it != memberNode->memberList.end()) {
-        if (it == memberNode->myPos) {
-            ++it;
-            continue;
-        }
-
         MemberListEntry &entry = *it;
-        int diff = par->getcurrtime() - entry.heartbeat;
+        long diff = par->getcurrtime() - entry.timestamp;
         if (diff > TREMOVE) {
             auto address = extractAddress(entry);
             log->logNodeRemove(&memberNode->addr, &address);
@@ -353,38 +351,42 @@ void MP1Node::nodeLoopOps() {
         }
     }
 
-    memberNode->timeOutCounter = par->getcurrtime();
-    memberNode->heartbeat++;
-    memberNode->myPos->setheartbeat(memberNode->heartbeat);
-    memberNode->myPos->settimestamp(par->getcurrtime());
-    log->LOG(&memberNode->addr, ("heartbeat: " + to_string(memberNode->heartbeat)).c_str());
-    for (auto it = memberNode->memberList.begin(); it != memberNode->memberList.end(); ++it) {
-        int id = *(int *) (&memberNode->addr.addr);
-        if (it->id == id) {
-            it->setheartbeat(memberNode->heartbeat);
-            it->settimestamp(par->getcurrtime());
-        }
-    }
-
+    auto size = static_cast<size_t>(max<long>((lround(memberNode->memberList.size() * HEARTBEAT_RECEIVERS_FACTOR)), 2));
+    auto heartbeatReceivers = vector<MemberListEntry>();
     for (auto &entry: memberNode->memberList) {
-        if (entry.heartbeat != 0) {
-            log->LOG(&memberNode->addr, ("entry heartbeat: " + to_string(entry.heartbeat)).c_str());
-        }
-    }
-    //TODO: replace with gossip strategy
-    for (auto &entry: memberNode->memberList) {
-        if (&entry == memberNode->myPos.base() || par->getcurrtime() - entry.getheartbeat() > TFAIL) {
+        if (&entry == &memberNode->memberList[0] || par->getcurrtime() - entry.gettimestamp() > TFAIL) {
             continue;
         }
-        auto address = extractAddress(entry);
-        size_t message_size =
-                sizeof(MessageHdr) + sizeof(size_t) + memberNode->memberList.size() * (sizeof(MemberListEntry));
 
-        auto msg = (MessageHdr *) malloc(message_size * sizeof(char));
-        msg->msgType = HEARTBEAT;
-        serialize_member_list(memberNode->memberList, (char *) (msg + 1));
+        heartbeatReceivers.push_back(entry);
+    }
+
+    while (heartbeatReceivers.size() > size) {
+        //TODO: replace with c++11 random
+        size_t index = std::rand() % heartbeatReceivers.size();
+        swap(heartbeatReceivers[index], heartbeatReceivers.back());
+        heartbeatReceivers.pop_back();
+    }
+
+    memberNode->timeOutCounter = par->getcurrtime();
+    memberNode->heartbeat++;
+    memberNode->memberList[0].setheartbeat(memberNode->heartbeat);
+    memberNode->memberList[0].settimestamp(par->getcurrtime());
+
+    int message_size =
+            sizeof(MessageHdr) + sizeof(size_t) + memberNode->memberList.size() * (sizeof(MemberListEntry));
+
+    auto msg = (MessageHdr *) malloc(message_size * sizeof(char));
+    msg->msgType = HEARTBEAT;
+    serialize_member_list(memberNode->memberList, (char *) (msg + 1));
+
+    for (auto &entry: heartbeatReceivers) {
+        auto address = extractAddress(entry);
+
         emulNet->ENsend(&memberNode->addr, &address, (char *) msg, message_size);
     }
+
+    free(msg);
 }
 
 /**
