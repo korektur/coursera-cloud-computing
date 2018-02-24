@@ -93,3 +93,8 @@ CTestTestfile.cmake
 *.exe
 *.out
 *.app
+.idea/codeStyles/
+.idea/misc.xml
+.idea/modules.xml
+.idea/mp2.iml
+.idea/vcs.xml
