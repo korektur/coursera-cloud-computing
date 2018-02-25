@@ -19,6 +19,10 @@
 #include "Message.h"
 #include "Queue.h"
 
+#include <unordered_map>
+
+using std::unordered_map;
+
 /**
  * CLASS NAME: MP2Node
  *
@@ -47,6 +51,8 @@ private:
     EmulNet *emulNet;
     // Object of Log
     Log *log;
+    // transaction holder
+    unordered_map<int, Message> transactionMap;
 
 public:
     MP2Node(Member *memberNode, Params *par, EmulNet *emulNet, Log *log, Address *addressOfMember);

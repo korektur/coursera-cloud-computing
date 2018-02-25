@@ -9,7 +9,7 @@
 #include <random>
 #include "MP1Node.h"
 
-#define HEARTBEAT_RECEIVERS_FACTOR 0.6
+#define HEARTBEAT_RECEIVERS_FACTOR 1
 
 /*
  * Note: You can change/add any functions in MP1Node.{h,cpp}
@@ -171,7 +171,7 @@ int MP1Node::finishUpThisNode() {
 }
 
 /**
- * FUNCTION NAME: nodeLoop
+ * FUNCTION NAME: nodeLoopx
  *
  * DESCRIPTION: Executed periodically at each member
  * 				Check your messages in queue and perform membership protocol duties
